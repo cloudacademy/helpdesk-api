@@ -7,6 +7,7 @@ bp = Blueprint("api", __name__, url_prefix="/api")
 VALID_STATUSES = {"open", "in_progress", "resolved", "closed"}
 VALID_PRIORITIES = {"low", "medium", "high", "urgent"}
 
+
 def _validate_ticket_payload(payload, partial=False):
     errors = []
 
@@ -27,12 +28,60 @@ def _validate_ticket_payload(payload, partial=False):
 
 @bp.get("/health")
 def health():
+    """
+    Health check
+    ---
+    tags:
+      - Health
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Service is healthy
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: ok
+    """
     return jsonify({"status": "ok"}), 200
 
 
 @bp.post("/tickets")
 @require_bearer_token
 def create_ticket():
+    """
+    Create a new ticket
+    ---
+    tags:
+      - Tickets
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          $ref: "#/definitions/TicketCreateRequest"
+    responses:
+      201:
+        description: Ticket created
+        schema:
+          $ref: "#/definitions/Ticket"
+      400:
+        description: Validation failed
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+      401:
+        description: Missing or invalid bearer token
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+    """
     payload = request.get_json(silent=True) or {}
     errors = _validate_ticket_payload(payload, partial=False)
     if errors:
@@ -55,7 +104,40 @@ def create_ticket():
 @bp.get("/tickets")
 @require_bearer_token
 def list_tickets():
-    # Basic filtering via query params
+    """
+    List tickets (optionally filter by status/priority)
+    ---
+    tags:
+      - Tickets
+    security:
+      - BearerAuth: []
+    produces:
+      - application/json
+    parameters:
+      - name: status
+        in: query
+        required: false
+        type: string
+        enum: [open, in_progress, resolved, closed]
+        description: Filter tickets by status
+      - name: priority
+        in: query
+        required: false
+        type: string
+        enum: [low, medium, high, urgent]
+        description: Filter tickets by priority
+    responses:
+      200:
+        description: A list of tickets
+        schema:
+          type: array
+          items:
+            $ref: "#/definitions/Ticket"
+      401:
+        description: Missing or invalid bearer token
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+    """
     status = request.args.get("status")
     priority = request.args.get("priority")
 
@@ -72,6 +154,36 @@ def list_tickets():
 @bp.get("/tickets/<int:ticket_id>")
 @require_bearer_token
 def get_ticket(ticket_id: int):
+    """
+    Get a ticket by ID
+    ---
+    tags:
+      - Tickets
+    security:
+      - BearerAuth: []
+    produces:
+      - application/json
+    parameters:
+      - name: ticket_id
+        in: path
+        required: true
+        type: integer
+        format: int32
+        description: Ticket ID
+    responses:
+      200:
+        description: Ticket returned
+        schema:
+          $ref: "#/definitions/Ticket"
+      404:
+        description: Ticket not found
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+      401:
+        description: Missing or invalid bearer token
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+    """
     ticket = Ticket.query.get(ticket_id)
     if not ticket:
         return jsonify({"error": "Ticket not found"}), 404
@@ -81,6 +193,47 @@ def get_ticket(ticket_id: int):
 @bp.put("/tickets/<int:ticket_id>")
 @require_bearer_token
 def replace_ticket(ticket_id: int):
+    """
+    Replace a ticket (full update)
+    ---
+    tags:
+      - Tickets
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - name: ticket_id
+        in: path
+        required: true
+        type: integer
+        format: int32
+        description: Ticket ID
+      - in: body
+        name: body
+        required: true
+        schema:
+          $ref: "#/definitions/TicketReplaceRequest"
+    responses:
+      200:
+        description: Ticket updated
+        schema:
+          $ref: "#/definitions/Ticket"
+      400:
+        description: Validation failed
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+      404:
+        description: Ticket not found
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+      401:
+        description: Missing or invalid bearer token
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+    """
     ticket = Ticket.query.get(ticket_id)
     if not ticket:
         return jsonify({"error": "Ticket not found"}), 404
@@ -104,6 +257,47 @@ def replace_ticket(ticket_id: int):
 @bp.patch("/tickets/<int:ticket_id>")
 @require_bearer_token
 def update_ticket(ticket_id: int):
+    """
+    Update a ticket (partial update)
+    ---
+    tags:
+      - Tickets
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - name: ticket_id
+        in: path
+        required: true
+        type: integer
+        format: int32
+        description: Ticket ID
+      - in: body
+        name: body
+        required: true
+        schema:
+          $ref: "#/definitions/TicketPatchRequest"
+    responses:
+      200:
+        description: Ticket updated
+        schema:
+          $ref: "#/definitions/Ticket"
+      400:
+        description: Validation failed
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+      404:
+        description: Ticket not found
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+      401:
+        description: Missing or invalid bearer token
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+    """
     ticket = Ticket.query.get(ticket_id)
     if not ticket:
         return jsonify({"error": "Ticket not found"}), 404
@@ -113,7 +307,6 @@ def update_ticket(ticket_id: int):
     if errors:
         return jsonify({"errors": errors}), 400
 
-    # Only update provided fields
     for field in ["title", "description", "status", "priority", "requester_email", "assigned_to"]:
         if field in payload:
             setattr(ticket, field, payload[field])
@@ -125,6 +318,43 @@ def update_ticket(ticket_id: int):
 @bp.delete("/tickets/<int:ticket_id>")
 @require_bearer_token
 def delete_ticket(ticket_id: int):
+    """
+    Delete a ticket
+    ---
+    tags:
+      - Tickets
+    security:
+      - BearerAuth: []
+    produces:
+      - application/json
+    parameters:
+      - name: ticket_id
+        in: path
+        required: true
+        type: integer
+        format: int32
+        description: Ticket ID
+    responses:
+      200:
+        description: Ticket deleted
+        schema:
+          type: object
+          properties:
+            deleted:
+              type: boolean
+              example: true
+            id:
+              type: integer
+              example: 123
+      404:
+        description: Ticket not found
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+      401:
+        description: Missing or invalid bearer token
+        schema:
+          $ref: "#/definitions/ErrorResponse"
+    """
     ticket = Ticket.query.get(ticket_id)
     if not ticket:
         return jsonify({"error": "Ticket not found"}), 404
